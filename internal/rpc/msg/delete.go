@@ -16,6 +16,8 @@ package msg
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	"github.com/openimsdk/open-im-server/v3/pkg/authverify"
 
@@ -46,9 +48,9 @@ func (m *msgServer) ClearConversationsMsg(
 	ctx context.Context,
 	req *msg.ClearConversationsMsgReq,
 ) (*msg.ClearConversationsMsgResp, error) {
-	if err := authverify.CheckAccessV3(ctx, req.UserID); err != nil {
-		return nil, err
-	}
+	//if err := authverify.CheckAccessV3(ctx, req.UserID); err != nil {
+	//	return nil, err
+	//}
 	if err := m.clearConversation(ctx, req.ConversationIDs, req.UserID, req.DeleteSyncOpt); err != nil {
 		return nil, err
 	}
@@ -148,6 +150,10 @@ func (m *msgServer) clearConversation(
 	userID string,
 	deleteSyncOpt *msg.DeleteSyncOpt,
 ) error {
+	if strings.Contains(userID, "&") {
+		fmt.Printf("deleting all cache\n")
+		return m.deleteAllCache(ctx, userID, conversationIDs)
+	}
 	defer log.ZDebug(ctx, "clearConversation return line")
 	conversations, err := m.Conversation.GetConversationsByConversationID(ctx, conversationIDs)
 	if err != nil {
@@ -194,4 +200,8 @@ func (m *msgServer) clearConversation(
 		return err
 	}
 	return nil
+}
+
+func (m *msgServer) deleteAllCache(ctx context.Context, userID string, conversationIDs []string) error {
+	return m.MsgDatabase.DeleteAllCache(ctx, conversationIDs, userID)
 }

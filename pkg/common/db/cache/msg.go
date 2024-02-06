@@ -17,7 +17,9 @@ package cache
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -63,6 +65,7 @@ const (
 var concurrentLimit = 3
 
 type SeqCache interface {
+	DeleteAllCache(ctx context.Context, conversationIDs []string, userID string) error
 	SetMaxSeq(ctx context.Context, conversationID string, maxSeq int64) error
 	GetMaxSeqs(ctx context.Context, conversationIDs []string) (map[string]int64, error)
 	GetMaxSeq(ctx context.Context, conversationID string) (int64, error)
@@ -174,6 +177,27 @@ func (c *msgCache) getSeqs(ctx context.Context, items []string, getkey func(s st
 
 func (c *msgCache) SetMaxSeq(ctx context.Context, conversationID string, maxSeq int64) error {
 	return c.setSeq(ctx, conversationID, maxSeq, c.getMaxSeqKey)
+}
+
+func (c *msgCache) DeleteAllCache(ctx context.Context, conversationIDs []string, userID string) error {
+	if len(conversationIDs) < 1 {
+		return nil
+	}
+	conversationID := conversationIDs[0]
+	userIDs := strings.Split(userID, "&")
+	if len(userIDs) != 2 {
+		return fmt.Errorf("incorrect userID passed, != 2: %w", errs.ErrDuplicateKey)
+	}
+	firstID := userIDs[0]
+	secondID := userIDs[1]
+	return c.rdb.Del(ctx,
+		c.getMaxSeqKey(conversationID),
+		c.getMinSeqKey(conversationID),
+		c.getHasReadSeqKey(conversationID, firstID),
+		c.getConversationUserMinSeqKey(conversationID, firstID),
+		c.getHasReadSeqKey(conversationID, secondID),
+		c.getConversationUserMinSeqKey(conversationID, secondID),
+	).Err()
 }
 
 func (c *msgCache) GetMaxSeqs(ctx context.Context, conversationIDs []string) (m map[string]int64, err error) {

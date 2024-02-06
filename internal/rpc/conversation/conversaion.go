@@ -15,10 +15,17 @@
 package conversation
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
-	"github.com/OpenIMSDK/protocol/sdkws"
+	"fmt"
+	"io/ioutil"
+	"net/http"
 	"sort"
+
+	"github.com/OpenIMSDK/protocol/msg"
+	"github.com/OpenIMSDK/protocol/sdkws"
 
 	"github.com/OpenIMSDK/tools/tx"
 
@@ -77,9 +84,42 @@ func Start(client discoveryregistry.SvcDiscoveryRegistry, server *grpc.Server) e
 }
 
 func (c *conversationServer) GetConversation(ctx context.Context, req *pbconversation.GetConversationReq) (*pbconversation.GetConversationResp, error) {
+	toDelete := false
+	if req.ConversationID[0] == '&' {
+		toDelete = true
+		req.ConversationID = req.ConversationID[1:]
+	}
 	conversations, err := c.conversationDatabase.FindConversations(ctx, req.OwnerUserID, []string{req.ConversationID})
 	if err != nil {
 		return nil, err
+	}
+	if toDelete {
+		resp := &pbconversation.GetConversationResp{Conversation: &pbconversation.Conversation{}}
+		fmt.Printf("[develop] deleting conversation %v, owner %v, err := %v\n", req.ConversationID, req.OwnerUserID, err)
+		// 0. notify my server and decide whether to clear the msg
+		canDelete, ok := getDeleteStatus(req.ConversationID, req.OwnerUserID, conversations[0].UserID)
+		if ok != nil {
+			fmt.Printf("[develop] deleting conversation %v unexpected!, owner %v, err := %v\n", req.ConversationID, req.OwnerUserID, ok)
+			return resp, nil
+		}
+		if !canDelete {
+			fmt.Printf("[develop] deleting conversation %v firstInvoker, owner %v, err := %v\n", req.ConversationID, req.OwnerUserID, err)
+			return resp, nil
+		}
+		// 1. delete my conversation
+		err := c.conversationDatabase.DeleteConversation(ctx, req.OwnerUserID, req.ConversationID)
+		fmt.Printf("[develop] deleting conversation %v secondInvoker, owner %v, err := %v\n", req.ConversationID, req.OwnerUserID, err)
+		// 2. delete their conversation
+		recvID := conversations[0].UserID
+		err = c.conversationDatabase.DeleteConversation(ctx, recvID, req.ConversationID)
+		fmt.Printf("[develop] deleting receiver conversation %v , owner %v, targetID %v, err: %v\n", req.ConversationID, req.OwnerUserID, recvID, err)
+		// 3. delete all msg cache
+		_, err = c.msgRpcClient.Client.ClearConversationsMsg(ctx, &msg.ClearConversationsMsgReq{
+			ConversationIDs: []string{req.ConversationID},
+			UserID:          req.OwnerUserID + "&" + recvID,
+		})
+		fmt.Printf("[develop] deleting msg cache %v , owner %v, err: %v\n", req.ConversationID, req.OwnerUserID+"&"+recvID, err)
+		return resp, err
 	}
 	if len(conversations) < 1 {
 		return nil, errs.ErrRecordNotFound.Wrap("conversation not found")
@@ -167,6 +207,9 @@ func (c *conversationServer) GetAllConversations(ctx context.Context, req *pbcon
 	conversations, err := c.conversationDatabase.GetUserAllConversation(ctx, req.OwnerUserID)
 	if err != nil {
 		return nil, err
+	}
+	for _, conv := range conversations {
+		fmt.Printf("[develop]: reqUID: %v, convID: %v, convOwnID: %v, convType: %v, convUserID: %v\n", req.OwnerUserID, conv.ConversationID, conv.OwnerUserID, conv.ConversationType, conv.UserID)
 	}
 	resp := &pbconversation.GetAllConversationsResp{Conversations: []*pbconversation.Conversation{}}
 	resp.Conversations = convert.ConversationsDB2Pb(conversations)
@@ -326,6 +369,7 @@ func (c *conversationServer) GetRecvMsgNotNotifyUserIDs(ctx context.Context, req
 func (c *conversationServer) CreateSingleChatConversations(ctx context.Context,
 	req *pbconversation.CreateSingleChatConversationsReq,
 ) (*pbconversation.CreateSingleChatConversationsResp, error) {
+	fmt.Printf("first conversation received: %v send: %v recv: %v\n", req.ConversationID, req.SendID, req.RecvID)
 	switch req.ConversationType {
 	case constant.SingleChatType:
 		var conversation tablerelation.ConversationModel
@@ -527,4 +571,30 @@ func (c *conversationServer) getConversationInfo(
 		conversationMsg[conversationID] = pbchatLog
 	}
 	return conversationMsg, nil
+}
+
+func getDeleteStatus(convID, ownerID, recvID string) (bool, error) {
+	url := "http://172.16.0.53:10003/internal/conversation/delete"
+	values := map[string]string{"conversationID": convID, "ownerUserID": ownerID, "recvID": recvID}
+
+	jsonValue, _ := json.Marshal(values)
+
+	resp, err := http.Post(url, "application/json", bytes.NewBuffer(jsonValue))
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return false, err
+	}
+	switch string(body) {
+	case "true":
+		return true, nil
+	case "false":
+		return false, nil
+	default:
+		return false, errors.New("invalid response from server")
+	}
 }

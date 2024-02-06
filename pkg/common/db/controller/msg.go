@@ -49,6 +49,7 @@ const (
 )
 
 type CommonMsgDatabase interface {
+	DeleteAllCache(ctx context.Context, conversationIDs []string, userID string) error
 	// 批量插入消息
 	BatchInsertChat2DB(ctx context.Context, conversationID string, msgs []*sdkws.MsgData, currentMaxSeq int64) error
 	// 撤回消息
@@ -906,6 +907,10 @@ func (db *commonMsgDatabase) CleanUpUserConversationsMsgs(ctx context.Context, u
 			log.ZError(ctx, "set min seq failed", err, "conversationID", conversationID, "minSeq", maxSeq+1)
 		}
 	}
+}
+
+func (db *commonMsgDatabase) DeleteAllCache(ctx context.Context, conversationIDs []string, userID string) error {
+	return db.cache.DeleteAllCache(ctx, conversationIDs, userID)
 }
 
 func (db *commonMsgDatabase) SetMaxSeq(ctx context.Context, conversationID string, maxSeq int64) error {

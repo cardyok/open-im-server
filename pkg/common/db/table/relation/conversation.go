@@ -44,6 +44,7 @@ type ConversationModel struct {
 
 type ConversationModelInterface interface {
 	Create(ctx context.Context, conversations []*ConversationModel) (err error)
+	DeleteConversation(ctx context.Context, conversationID string, ownerUserID string) (err error)
 	Delete(ctx context.Context, groupIDs []string) (err error)
 	UpdateByMap(ctx context.Context, userIDs []string, conversationID string, args map[string]any) (rows int64, err error)
 	Update(ctx context.Context, conversation *ConversationModel) (err error)

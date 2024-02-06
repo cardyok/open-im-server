@@ -51,6 +51,10 @@ func (c *ConversationMgo) Create(ctx context.Context, conversations []*relation.
 	return mgoutil.InsertMany(ctx, c.coll, conversations)
 }
 
+func (c *ConversationMgo) DeleteConversation(ctx context.Context, conversationID string, ownerUserID string) (err error) {
+	return mgoutil.DeleteOne(ctx, c.coll, bson.M{"owner_user_id": ownerUserID, "conversation_id": conversationID})
+}
+
 func (c *ConversationMgo) Delete(ctx context.Context, groupIDs []string) (err error) {
 	return mgoutil.DeleteMany(ctx, c.coll, bson.M{"group_id": bson.M{"$in": groupIDs}})
 }

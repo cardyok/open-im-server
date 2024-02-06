@@ -15,6 +15,10 @@
 package api
 
 import (
+	"github.com/OpenIMSDK/tools/apiresp"
+	"github.com/OpenIMSDK/tools/checker"
+	"github.com/OpenIMSDK/tools/errs"
+	"github.com/OpenIMSDK/tools/log"
 	"github.com/gin-gonic/gin"
 
 	"github.com/OpenIMSDK/protocol/conversation"
@@ -48,7 +52,27 @@ func (o *ConversationApi) GetConversations(c *gin.Context) {
 func (o *ConversationApi) SetConversations(c *gin.Context) {
 	a2r.Call(conversation.ConversationClient.SetConversations, o.Client, c)
 }
-
+func (o *ConversationApi) DelConversations(c *gin.Context) {
+	var req conversation.GetConversationReq
+	if err := c.BindJSON(&req); err != nil {
+		log.ZWarn(c, "gin bind json error", err, "req", req)
+		apiresp.GinError(c, errs.ErrArgs.WithDetail(err.Error()).Wrap()) // 参数错误
+		return
+	}
+	if err := checker.Validate(&req); err != nil {
+		apiresp.GinError(c, err) // 参数校验失败
+		return
+	}
+	if req.ConversationID != "" {
+		req.ConversationID = "&" + req.ConversationID
+	}
+	data, err := o.Client.GetConversation(c, &req)
+	if err != nil {
+		apiresp.GinError(c, err) // RPC调用失败
+		return
+	}
+	apiresp.GinSuccess(c, data) // 成功
+}
 func (o *ConversationApi) GetConversationOfflinePushUserIDs(c *gin.Context) {
 	a2r.Call(conversation.ConversationClient.GetConversationOfflinePushUserIDs, o.Client, c)
 }

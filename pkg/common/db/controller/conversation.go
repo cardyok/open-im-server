@@ -38,6 +38,8 @@ type ConversationDatabase interface {
 	CreateConversation(ctx context.Context, conversations []*relationtb.ConversationModel) error
 	// SyncPeerUserPrivateConversation 同步对端私聊会话内部保证事务操作
 	SyncPeerUserPrivateConversationTx(ctx context.Context, conversation []*relationtb.ConversationModel) error
+	// DeleteConversation 根据会话ID删除某个用户的一个会话
+	DeleteConversation(ctx context.Context, ownerUserID string, conversationID string) error
 	// FindConversations 根据会话ID获取某个用户的多个会话
 	FindConversations(ctx context.Context, ownerUserID string, conversationIDs []string) ([]*relationtb.ConversationModel, error)
 	// FindRecvMsgNotNotifyUserIDs 获取超级大群开启免打扰的用户ID
@@ -186,6 +188,16 @@ func (c *conversationDatabase) SyncPeerUserPrivateConversationTx(ctx context.Con
 
 func (c *conversationDatabase) FindConversations(ctx context.Context, ownerUserID string, conversationIDs []string) ([]*relationtb.ConversationModel, error) {
 	return c.cache.GetConversations(ctx, ownerUserID, conversationIDs)
+}
+
+func (c *conversationDatabase) DeleteConversation(ctx context.Context, ownerUserID string, conversationID string) error {
+	if err := c.cache.DelConversations(ownerUserID, conversationID).DelConversationNotReceiveMessageUserIDs(conversationID).ExecDel(ctx); err != nil {
+		return err
+	}
+	if err := c.conversationDB.DeleteConversation(ctx, conversationID, ownerUserID); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (c *conversationDatabase) GetConversation(ctx context.Context, ownerUserID string, conversationID string) (*relationtb.ConversationModel, error) {
